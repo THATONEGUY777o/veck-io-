@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>VECK.IO - Cyber Arena Ultimate</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; -webkit-user-select: none; touch-action: none; }
+        body, html { width: 100%; height: 100%; overflow: hidden; background: #050508; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; color: #fff; }
+        #game-container { position: relative; width: 100vw; height: 100vh; }
+        canvas { display: block; width: 100%; height: 100%; }
+        
+        /* Interface Glassmorphism */
+        .ui-layer { position: absolute; inset: 0; pointer-events: none; display: flex; flex-direction: column; justify-content: space-between; padding: 15px; z-index: 10; }
+        .interactive { pointer-events: auto; }
+        .glass-panel { background: rgba(15, 18, 28, 0.8); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(0, 243, 255, 0.25); border-radius: 12px; box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.4); }
+        
+        /* Overlay Menus */
+        .overlay { position: absolute; inset: 0; background: rgba(5, 5, 10, 0.88); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); display: flex; justify-content: center; align-items: center; z-index: 100; }
+        .menu-box { width: 90%; max-width: 480px; padding: 25px; text-align: center; border: 1px solid #00f3ff; box-shadow: 0 0 25px rgba(0, 243, 255, 0.3); }
+        .menu-title { font-size: 2.8rem; font-weight: 900; letter-spacing: 4px; color: #00f3ff; text-shadow: 0 0 12px #00f3ff; margin-bottom: 15px; }
+        
+        /* Form Inputs & Buttons */
+        input[type="text"] { width: 100%; padding: 12px; margin: 10px 0; background: rgba(255, 255, 255, 0.05); border: 1px solid #00f3ff; border-radius: 6px; color: #fff; font-size: 1rem; text-align: center; outline: none; }
+        .btn-group { display: flex; gap: 10px; margin-top: 15px; }
+        .btn { flex: 1; padding: 12px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; transition: all 0.2s; text-transform: uppercase; letter-spacing: 1px; font-size: 0.9rem; }
+        .btn-primary { background: #00f3ff; color: #050508; box-shadow: 0 0 12px rgba(0,243,255,0.5); }
+        .btn-primary:hover { background: #80f9ff; transform: translateY(-2px); }
+        .btn-secondary { background: #ff0055; color: #fff; box-shadow: 0 0 12px rgba(255,0,85,0.5); }
+        .btn-secondary:hover { background: #ff3377; transform: translateY(-2px); }
+        
+        /* Selectors */
+        .class-selector { display: flex; gap: 8px; margin: 10px 0; }
+        .class-btn { flex: 1; padding: 10px 5px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.4); border-radius: 6px; color: #ccc; cursor: pointer; font-size: 0.8rem; transition: all 0.2s; }
+        .class-btn.active { border-color: #00f3ff; color: #00f3ff; background: rgba(0,243,255,0.15); box-shadow: 0 0 8px rgba(0,243,255,0.3); }
+
+        /* HUD Top Bar */
+        .hud-top { display: flex; justify-content: space-between; align-items: flex-start; width: 100%; }
+        .stats-card { padding: 10px 18px; display: flex; gap: 20px; }
+        .stat-item { text-align: center; }
+        .stat-val { font-size: 1.2rem; font-weight: bold; color: #00f3ff; }
+        .stat-lbl { font-size: 0.65rem; color: #aaa; text-transform: uppercase; }
+        
+        /* Timer & Objective Status */
+        .match-status { text-align: center; padding: 8px 20px; }
+        .timer-display { font-size: 1.6rem; font-weight: 900; color: #ff0055; text-shadow: 0 0 8px #ff0055; }
+        .zone-status { font-size: 0.75rem; color: #00f3ff; margin-top: 2px; font-weight: 600; }
+
+        /* Mobile / iPad Touch Controls */
+        .touch-zone { position: absolute; inset: 0; pointer-events: auto; display: none; z-index: 20; }
+        @media (pointer: coarse), (max-width: 1024px) { .touch-zone { display: block; } }
+        .action-btn { position: absolute; width: 70px; height: 70px; border-radius: 50%; background: rgba(255,0,85,0.3); border: 2px solid #ff0055; color: #fff; font-weight: bold; display: flex; justify-content: center; align-items: center; box-shadow: 0 0 15px rgba(255,0,85,0.4); font-size: 0.8rem; }
+        #btn-dash { right: 30px; bottom: 120px; }
+        #btn-ult { right: 110px; bottom: 40px; background: rgba(0,243,255,0.3); border-color: #00f3ff; box-shadow: 0 0 15px rgba(0,243,255,0.4); }
+        
+        /* Minimap */
+        #minimap { position: absolute; right: 15px; top: 15px; width: 120px; height: 120px; border-radius: 8px; border: 1px solid rgba(0,243,255,0.4); background: rgba(5,5,10,0.7); }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="gameCanvas"></canvas>
+
+        <!-- UI HUD Layer -->
+        <div class="ui-layer">
+            <div class="hud-top">
+                <div class="glass-panel stats-card">
+                    <div class="stat-item"><div class="stat-val" id="hp-val">100</div><div class="stat-lbl">HP</div></div>
+                    <div class="stat-item"><div class="stat-val" id="score-val">0</div><div class="stat-lbl">Pontos</div></div>
+                    <div class="stat-item"><div class="stat-val" id="ult-val">100%</div><div class="stat-lbl">Ult</div></div>
+                </div>
+
+                <div class="glass-panel match-status">
+                    <div class="timer-display" id="timer-val">03:00</div>
+                    <div class="zone-status" id="zone-val">NÍVEL: CHÃO</div>
+                </div>
+
+                <canvas id="minimap"></canvas>
+            </div>
+        </div>
+
+        <!-- Touch Controls for iPad/Tablets -->
+        <div class="touch-zone" id="touchOverlay">
+            <div id="btn-dash" class="action-btn interactive">DASH</div>
+            <div id="btn-ult" class="action-btn interactive">EMP ULT</div>
+        </div>
+
+        <!-- Main Menu Overlay -->
+        <div class="overlay" id="mainMenu">
+            <div class="glass-panel menu-box interactive">
+                <div class="menu-title">VECK.IO</div>
+                <input type="text" id="playerName" placeholder="SEU NICKNAME" maxlength="12" value="Piloto">
+                
+                <div style="margin-top:12px; text-align:left; font-size:0.8rem; color:#aaa;">SELECIONE SUA CLASSE:</div>
+                <div class="class-selector">
+                    <button class="class-btn active" onclick="selectClass('speedster', this)">Speedster</button>
+                    <button class="class-btn" onclick="selectClass('tank', this)">Tank</button>
+                    <button class="class-btn" onclick="selectClass('sniper', this)">Sniper</button>
+                </div>
+
+                <input type="text" id="roomCode" placeholder="CÓDIGO DA SALA (OPCIONAL)" maxlength="6" style="text-transform:uppercase;">
+
+                <div class="btn-group">
+                    <button class="btn btn-primary" onclick="startGame('offline')">SOLO / BOTS</button>
+                    <button class="btn btn-secondary" onclick="startGame('online')">ENTRAR / CREAR</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- MOTOR PRINCIPAL DO JOGO ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const miniCanvas = document.getElementById('minimap');
+        const miniCtx = miniCanvas.getContext('2d');
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            miniCanvas.width = 120;
+            miniCanvas.height = 120;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // Configurações do Mundo e Estado
+        const WORLD_SIZE = 2400;
+        let gameRunning = false;
+        let selectedClass = 'speedster';
+        let matchTime = 180;
+        let timerInterval = null;
+        let bullets = [];
+        let particles = [];
+        let bots = [];
+        let keys = {};
+
+        // Jogador Principal
+        const player = {
+            id: Math.random().toString(36).substr(2, 9),
+            name: "Piloto",
+            x: WORLD_SIZE / 2 + (Math.random() * 200 - 100),
+            y: WORLD_SIZE / 2 + (Math.random() * 200 - 100),
+            vx: 0,
+            vy: 0,
+            angle: 0,
+            hp: 100,
+            maxHp: 100,
+            speed: 6,
+            score: 0,
+            zLevel: 0, // 0 = Chão (Escurecido quando visto do topo), 1 = Topo da Plataforma
+            ultCharge: 100,
+            lastShot: 0
+        };
+
+        // Plataformas Elevadas (Sistema de Altura Z)
+        const platforms = [
+            { x: WORLD_SIZE/2 - 300, y: WORLD_SIZE/2 - 300, w: 600, h: 600, z: 1, name: "Plataforma Central Elevada" }
+        ];
+
+        // Web Audio API sintetizado para sons sem arquivos externos
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        function playSound(type) {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+
+            if(type === 'shoot') {
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(440, audioCtx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(110, audioCtx.currentTime + 0.1);
+                gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+                gain.gain.linearRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+                osc.start(); osc.stop(audioCtx.currentTime + 0.1);
+            } else if(type === 'ult') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(150, audioCtx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(600, audioCtx.currentTime + 0.4);
+                gain.gain.setValueAtTime(0.4, audioCtx.currentTime);
+                gain.gain.linearRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
+                osc.start(); osc.stop(audioCtx.currentTime + 0.4);
+            }
+        }
+
+        // Seleção de Classe
+        function selectClass(className, el) {
+            selectedClass = className;
+            document.querySelectorAll('.class-btn').forEach(btn => btn.classList.remove('active'));
+            el.classList.add('active');
+            
+            if(className === 'speedster') { player.speed = 6.5; player.maxHp = 80; }
+            if(className === 'tank') { player.speed = 4.0; player.maxHp = 150; }
+            if(className === 'sniper') { player.speed = 4.8; player.maxHp = 90; }
+            player.hp = player.maxHp;
+        }
+
+        // Controles Teclado/Mouse
+        window.addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
+        window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+        window.addEventListener('mousemove', e => {
+            if (!gameRunning) return;
+            const dx = e.clientX - canvas.width / 2;
+            const dy = e.clientY - canvas.height / 2;
+            player.angle = Math.atan2(dy, dx);
+        });
+        window.addEventListener('mousedown', () => { if(gameRunning) shoot(); });
+
+        // Touch Controles para iPad
+        let touchStartX = 0, touchStartY = 0;
+        document.getElementById('btn-dash').addEventListener('touchstart', (e) => { e.preventDefault(); dash(); });
+        document.getElementById('btn-ult').addEventListener('touchstart', (e) => { e.preventDefault(); activateUlt(); });
+
+        function dash() {
+            player.vx += Math.cos(player.angle) * 15;
+            player.vy += Math.sin(player.angle) * 15;
+            createParticles(player.x, player.y, "#00f3ff", 12);
+        }
+
+        function activateUlt() {
+            if(player.ultCharge >= 100) {
+                player.ultCharge = 0;
+                playSound('ult');
+                createParticles(player.x, player.y, "#00f3ff", 40);
+                // Causa dano em área em quem estiver por perto
+                bots.forEach(b => {
+                    const dist = Math.hypot(b.x - player.x, b.y - player.y);
+                    if(dist < 350) { b.hp -= 50; }
+                });
+            }
+        }
+
+        function shoot() {
+            const now = Date.now();
+            if(now - player.lastShot < 180) return;
+            player.lastShot = now;
+
+            playSound('shoot');
+            bullets.push({
+                x: player.x + Math.cos(player.angle) * 20,
+                y: player.y + Math.sin(player.angle) * 20,
+                vx: Math.cos(player.angle) * 16,
+                vy: Math.sin(player.angle) * 16,
+                zLevel: player.zLevel,
+                owner: player.id
+            });
+        }
+
+        function createParticles(x, y, color, count) {
+            for(let i=0; i<count; i++) {
+                particles.push({
+                    x, y,
+                    vx: (Math.random() - 0.5) * 8,
+                    vy: (Math.random() - 0.5) * 8,
+                    life: 1,
+                    color
+                });
+            }
+        }
+
+        // Criar Bots IA para Modo Solo
+        function spawnBots() {
+            bots = [];
+            for(let i = 0; i < 5; i++) {
+                bots.push({
+                    id: 'bot_' + i,
+                    x: Math.random() * WORLD_SIZE,
+                    y: Math.random() * WORLD_SIZE,
+                    vx: 0, vy: 0,
+                    angle: 0,
+                    hp: 100,
+                    zLevel: 0,
+                    score: 0
+                });
+            }
+        }
+
+        // --- ATUALIZAÇÃO DA FÍSICA ---
+        function update() {
+            if (!gameRunning) return;
+
+            // Movimento Teclado
+            if (keys['w'] || keys['arrowup']) player.vy -= player.speed * 0.15;
+            if (keys['s'] || keys['arrowdown']) player.vy += player.speed * 0.15;
+            if (keys['a'] || keys['arrowleft']) player.vx -= player.speed * 0.15;
+            if (keys['d'] || keys['arrowright']) player.vx += player.speed * 0.15;
+            if (keys[' ']) dash();
+
+            // Física & Inércia
+            player.x += player.vx; player.y += player.vy;
+            player.vx *= 0.92; player.vy *= 0.92;
+
+            // Limites do Mapa
+            player.x = Math.max(30, Math.min(WORLD_SIZE - 30, player.x));
+            player.y = Math.max(30, Math.min(WORLD_SIZE - 30, player.y));
+
+            // Checagem de Altura / Plataformas
+            let onTop = false;
+            platforms.forEach(p => {
+                if (player.x >= p.x && player.x <= p.x + p.w && player.y >= p.y && player.y <= p.y + p.h) {
+                    onTop = true;
+                }
+            });
+            player.zLevel = onTop ? 1 : 0;
+
+            // Carrega Ult gradualmente
+            if(player.ultCharge < 100) player.ultCharge += 0.05;
+
+            // Projéteis
+            for(let i = bullets.length - 1; i >= 0; i--) {
+                let b = bullets[i];
+                b.x += b.vx; b.y += b.vy;
+
+                // Colisão com Bots
+                bots.forEach(bot => {
+                    if(b.owner === player.id && Math.hypot(bot.x - b.x, bot.y - b.y) < 20) {
+                        // Vantagem de elevação: Projéteis do chão não acertam quem está no topo
+                        if(b.zLevel === bot.zLevel || b.zLevel > bot.zLevel) {
+                            bot.hp -= 25;
+                            createParticles(b.x, b.y, "#ff0055", 6);
+                            bullets.splice(i, 1);
+                            if(bot.hp <= 0) {
+                                player.score += 100;
+                                bot.x = Math.random() * WORLD_SIZE;
+                                bot.y = Math.random() * WORLD_SIZE;
+                                bot.hp = 100;
+                            }
+                        }
+                    }
+                });
+
+                if(b && (b.x < 0 || b.x > WORLD_SIZE || b.y < 0 || b.y > WORLD_SIZE)) {
+                    bullets.splice(i, 1);
+                }
+            }
+
+            // Atualização de Bots IA
+            bots.forEach(bot => {
+                const dx = player.x - bot.x;
+                const dy = player.y - bot.y;
+                bot.angle = Math.atan2(dy, dx);
+                bot.x += Math.cos(bot.angle) * 2;
+                bot.y += Math.sin(bot.angle) * 2;
+
+                let botOnTop = false;
+                platforms.forEach(p => {
+                    if (bot.x >= p.x && bot.x <= p.x + p.w && bot.y >= p.y && bot.y <= p.y + p.h) botOnTop = true;
+                });
+                bot.zLevel = botOnTop ? 1 : 0;
+            });
+
+            // Partículas
+            for(let i = particles.length - 1; i >= 0; i--) {
+                let p = particles[i];
+                p.x += p.vx; p.y += p.vy;
+                p.life -= 0.03;
+                if(p.life <= 0) particles.splice(i, 1);
+            }
+
+            // HUD
+            document.getElementById('hp-val').innerText = Math.max(0, Math.floor(player.hp));
+            document.getElementById('score-val').innerText = player.score;
+            document.getElementById('ult-val').innerText = `${Math.floor(player.ultCharge)}%`;
+            document.getElementById('zone-val').innerText = player.zLevel === 1 ? "NÍVEL: PLATAFORMA (ELEVADA)" : "NÍVEL: CHÃO";
+            document.getElementById('zone-val').style.color = player.zLevel === 1 ? "#00f3ff" : "#ff0055";
+        }
+
+        // --- RENDERIZAÇÃO GRÁFICA NEON ---
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            ctx.save();
+            // Câmera Acompanha o Jogador
+            ctx.translate(canvas.width / 2 - player.x, canvas.height / 2 - player.y);
+
+            // 1. CHÃO DA ARENA
+            ctx.strokeStyle = "rgba(0, 243, 255, 0.08)";
+            ctx.lineWidth = 1;
+            for (let x = 0; x < WORLD_SIZE; x += 100) {
+                ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, WORLD_SIZE); ctx.stroke();
+            }
+            for (let y = 0; y < WORLD_SIZE; y += 100) {
+                ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(WORLD_SIZE, y); ctx.stroke();
+            }
+
+            // 2. FILTRO DE ALTURA Z: Se você estiver no topo, escurece o mapa do chão
+            if (player.zLevel === 1) {
+                ctx.fillStyle = "rgba(5, 5, 12, 0.7)";
+                ctx.fillRect(0, 0, WORLD_SIZE, WORLD_SIZE);
+            }
+
+            // 3. PLATAFORMAS ELEVADAS
+            platforms.forEach(p => {
+                ctx.fillStyle = "rgba(0, 243, 255, 0.12)";
+                ctx.fillRect(p.x, p.y, p.w, p.h);
+                ctx.strokeStyle = "#00f3ff";
+                ctx.lineWidth = 3;
+                ctx.strokeRect(p.x, p.y, p.w, p.h);
+
+                // Brilho Neon na Borda
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = "#00f3ff";
+                ctx.strokeRect(p.x, p.y, p.w, p.h);
+                ctx.shadowBlur = 0;
+            });
+
+            // 4. PROJÉTEIS
+            bullets.forEach(b => {
+                ctx.fillStyle = b.zLevel === 1 ? "#ffffff" : "#ff0055";
+                ctx.beginPath();
+                ctx.arc(b.x, b.y, 4, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            // 5. BOTS
+            bots.forEach(b => {
+                ctx.save();
+                ctx.translate(b.x, b.y);
+                ctx.rotate(b.angle);
+                ctx.fillStyle = "#ff0055";
+                ctx.beginPath();
+                ctx.moveTo(12, 0); ctx.lineTo(-8, -8); ctx.lineTo(-8, 8);
+                ctx.closePath();
+                ctx.fill();
+                ctx.restore();
+            });
+
+            // 6. JOGADOR PRINCIPAL
+            ctx.save();
+            ctx.translate(player.x, player.y);
+            ctx.rotate(player.angle);
+
+            // Efeito Glow / Elevação Visual
+            ctx.shadowBlur = player.zLevel === 1 ? 25 : 10;
+            ctx.shadowColor = "#00f3ff";
+
+            ctx.fillStyle = player.zLevel === 1 ? "#ffffff" : "#00f3ff";
+            ctx.beginPath();
+            ctx.moveTo(16, 0);
+            ctx.lineTo(-10, -10);
+            ctx.lineTo(-10, 10);
+            ctx.closePath();
+            ctx.fill();
+            ctx.restore();
+
+            // Partículas
+            particles.forEach(p => {
+                ctx.fillStyle = p.color;
+                ctx.globalAlpha = p.life;
+                ctx.fillRect(p.x, p.y, 3, 3);
+            });
+            ctx.globalAlpha = 1.0;
+
+            ctx.restore();
+
+            // 7. MINIMAPA
+            drawMinimap();
+        }
+
+        function drawMinimap() {
+            miniCtx.clearRect(0, 0, 120, 120);
+            miniCtx.fillStyle = "rgba(5, 5, 10, 0.8)";
+            miniCtx.fillRect(0, 0, 120, 120);
+
+            const scale = 120 / WORLD_SIZE;
+
+            // Desenha plataforma no minimapa
+            platforms.forEach(p => {
+                miniCtx.fillStyle = "rgba(0, 243, 255, 0.3)";
+                miniCtx.fillRect(p.x * scale, p.y * scale, p.w * scale, p.h * scale);
+            });
+
+            // Desenha Jogador
+            miniCtx.fillStyle = "#00f3ff";
+            miniCtx.beginPath();
+            miniCtx.arc(player.x * scale, player.y * scale, 3, 0, Math.PI * 2);
+            miniCtx.fill();
+
+            // Desenha Bots
+            miniCtx.fillStyle = "#ff0055";
+            bots.forEach(b => {
+                miniCtx.beginPath();
+                miniCtx.arc(b.x * scale, b.y * scale, 2, 0, Math.PI * 2);
+                miniCtx.fill();
+            });
+        }
+
+        function gameLoop() {
+            update();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        function startGame(mode) {
+            player.name = document.getElementById('playerName').value || "Piloto";
+            document.getElementById('mainMenu').style.display = 'none';
+            gameRunning = true;
+
+            if(mode === 'offline') {
+                spawnBots();
+            }
+
+            // Temporizador de Partida (3 Minutos)
+            if(timerInterval) clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                matchTime--;
+                const mins = String(Math.floor(matchTime / 60)).padStart(2, '0');
+                const secs = String(matchTime % 60).padStart(2, '0');
+                document.getElementById('timer-val').innerText = `${mins}:${secs}`;
+
+                // Ganha pontos contínuos por dominar a plataforma alta
+                if(player.zLevel === 1) {
+                    player.score += 5;
+                }
+
+                if(matchTime <= 0) {
+                    alert(`Fim de jogo! Pontuação final: ${player.score}`);
+                    location.reload();
+                }
+            }, 1000);
+
+            gameLoop();
+        }
+    </script>
+</body>
+</html>
