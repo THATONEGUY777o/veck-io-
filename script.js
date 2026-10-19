@@ -1,11 +1,17 @@
+// Variáveis do Multiplayer
+let localPlayerId = null;
+let currentRoomCode = null;
+let syncInterval = null;
+
 // -------------------------------------------------------------
-// 1. Função para Iniciar a Partida Online (Sem Bots)
+// 1. Iniciar Partida Online e Escutar Outros Jogadores
 // -------------------------------------------------------------
 function startOnlineMatch(playerName, roomCode) {
+    currentRoomCode = roomCode;
     const colorBtn = document.querySelector('.color-btn.ring-2');
     const selectedColor = colorBtn ? colorBtn.getAttribute('data-color') : '#00f3ff';
 
-    // Exibe o código da sala no badge superior
+    // Badge do código no topo
     const badge = document.getElementById('activeRoomBadge');
     const roomCodeText = document.getElementById('activeRoomCode');
     if (badge && roomCodeText) {
@@ -13,31 +19,93 @@ function startOnlineMatch(playerName, roomCode) {
         badge.classList.remove('hidden');
     }
 
-    // Inicializa o áudio do jogo
     if (typeof audio !== 'undefined' && audio.init) {
         audio.init();
     }
 
     if (window.gameInstance) {
-        // Limpa jogadores anteriores e bots da memória
+        // Limpa a arena
         window.gameInstance.players.clear();
         window.gameInstance.bullets = [];
 
-        // Cria apenas o teu jogador local na arena
-        const myId = 'player_' + Math.random().toString(36).substring(2, 9);
+        // Identificador único para este jogador
+        localPlayerId = 'player_' + Math.random().toString(36).substring(2, 9);
         const sp = window.gameInstance.spawnPoints[Math.floor(Math.random() * window.gameInstance.spawnPoints.length)];
         
-        window.gameInstance.localPlayer = new Player(myId, playerName, selectedColor, sp.x, sp.y, false);
-        window.gameInstance.players.set(myId, window.gameInstance.localPlayer);
+        // Cria o jogador local
+        window.gameInstance.localPlayer = new Player(localPlayerId, playerName, selectedColor, sp.x, sp.y, false);
+        window.gameInstance.players.set(localPlayerId, window.gameInstance.localPlayer);
 
-        // Inicia o Canvas do jogo
         window.gameInstance.startGameLoop();
-        window.gameInstance.addChatMessage('SYS', `Conectado à sala online: ${roomCode}`);
+        window.gameInstance.addChatMessage('SYS', `Conectado à sala: ${roomCode}`);
+
+        // Inicia a sincronização com o Firebase
+        setupNetworkSync(roomCode);
     }
 }
 
 // -------------------------------------------------------------
-// 2. Função para Criar Sala
+// 2. Sincronização em Tempo Real (Enviar e Receber Posições)
+// -------------------------------------------------------------
+function setupNetworkSync(roomCode) {
+    if (!window.database || !window.dbRef || !window.dbOnValue) return;
+
+    const playersRef = window.dbRef(window.database, `rooms/${roomCode}/players`);
+
+    // A) Envia a tua posição para o Firebase a cada 50ms (20 vezes por segundo)
+    if (syncInterval) clearInterval(syncInterval);
+    syncInterval = setInterval(() => {
+        if (window.gameInstance && window.gameInstance.localPlayer && localPlayerId) {
+            const p = window.gameInstance.localPlayer;
+            const myPlayerRef = window.dbRef(window.database, `rooms/${roomCode}/players/${localPlayerId}`);
+            
+            window.dbSet(myPlayerRef, {
+                id: localPlayerId,
+                name: p.name,
+                color: p.color,
+                x: Math.round(p.x),
+                y: Math.round(p.y),
+                angle: Number(p.angle.toFixed(2)),
+                health: p.health,
+                shield: p.shield,
+                score: p.score,
+                lastSeen: Date.now()
+            });
+        }
+    }, 50);
+
+    // B) Escuta a posição do teu amigo e desenha-o no teu ecrã
+    window.dbOnValue(playersRef, (snapshot) => {
+        const playersData = snapshot.val();
+        if (!playersData || !window.gameInstance) return;
+
+        Object.keys(playersData).forEach((id) => {
+            // Ignora o teu próprio jogador
+            if (id === localPlayerId) return;
+
+            const data = playersData[id];
+            let remotePlayer = window.gameInstance.players.get(id);
+
+            // Se o teu amigo ainda não existir no teu jogo, cria-o!
+            if (!remotePlayer) {
+                remotePlayer = new Player(id, data.name, data.color, data.x, data.y, false);
+                window.gameInstance.players.set(id, remotePlayer);
+                window.gameInstance.addChatMessage('SYS', `${data.name} entrou na arena!`);
+            } else {
+                // Atualiza a posição do teu amigo em tempo real
+                remotePlayer.x = data.x;
+                remotePlayer.y = data.y;
+                remotePlayer.angle = data.angle;
+                remotePlayer.health = data.health;
+                remotePlayer.shield = data.shield;
+                remotePlayer.score = data.score;
+            }
+        });
+    });
+}
+
+// -------------------------------------------------------------
+// 3. Criar Sala
 // -------------------------------------------------------------
 function createRoom() {
     if (!window.database || !window.dbRef || !window.dbSet) {
@@ -53,12 +121,11 @@ function createRoom() {
 
     window.dbSet(roomRef, {
         host: playerName,
-        status: 'waiting',
+        status: 'active',
         createdAt: Date.now()
     }).then(() => {
-        console.log("Sala gerada no Firebase:", roomCode);
+        console.log("Sala criada no Firebase:", roomCode);
 
-        // Altera o botão principal para "JOGAR ONLINE"
         let btnMain = document.getElementById('btnOffline');
         if (btnMain) {
             btnMain.innerHTML = `<i class="fa-solid fa-rocket mr-2"></i> JOGAR ONLINE (SALA: ${roomCode})`;
@@ -79,7 +146,7 @@ function createRoom() {
 }
 
 // -------------------------------------------------------------
-// 3. Função para Entrar numa Sala Existente
+// 4. Entrar na Sala com Código
 // -------------------------------------------------------------
 function joinRoom() {
     if (!window.database || !window.dbRef || !window.dbGet) {
@@ -100,13 +167,12 @@ function joinRoom() {
 
     const roomRef = window.dbRef(window.database, 'rooms/' + roomCode);
 
-    // Verifica se a sala existe no Firebase
     window.dbGet(roomRef).then((snapshot) => {
         if (snapshot.exists()) {
-            console.log("Sala encontrada! Entrando na sala:", roomCode);
+            console.log("Entrando na sala:", roomCode);
             startOnlineMatch(playerName, roomCode);
         } else {
-            alert("Sala não encontrada! Confirma o código digitado.");
+            alert("Sala não encontrada! Confirma se o teu amigo já criou a sala.");
         }
     }).catch((error) => {
         console.error("Erro ao procurar sala:", error);
@@ -115,16 +181,12 @@ function joinRoom() {
 }
 
 // -------------------------------------------------------------
-// 4. Associação dos Eventos dos Botões
+// 5. Configurar Botões
 // -------------------------------------------------------------
 document.addEventListener('DOMContentLoaded', () => {
-    // Botão Criar Sala
     const btnCreate = document.getElementById('btnCreateRoom');
-    if (btnCreate) {
-        btnCreate.addEventListener('click', createRoom);
-    }
+    if (btnCreate) btnCreate.addEventListener('click', createRoom);
 
-    // Botão que exibe o campo para digitar o código
     const btnJoinRoom = document.getElementById('btnJoinRoom');
     if (btnJoinRoom) {
         btnJoinRoom.addEventListener('click', () => {
@@ -133,9 +195,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Botão "ENTRAR" que confirma a junção à sala
     const btnConfirmJoin = document.getElementById('btnConfirmJoin');
-    if (btnConfirmJoin) {
-        btnConfirmJoin.addEventListener('click', joinRoom);
-    }
+    if (btnConfirmJoin) btnConfirmJoin.addEventListener('click', joinRoom);
 });
