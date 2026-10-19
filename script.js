@@ -1,3 +1,4 @@
+
 // Variáveis do Multiplayer
 let localPlayerId = null;
 let currentRoomCode = null;
